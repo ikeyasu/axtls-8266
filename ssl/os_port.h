@@ -58,7 +58,21 @@ extern "C" {
 #define WIN32
 #endif
 
-#ifdef WIN32
+#if defined(ESP8266)
+
+#include "util/time.h"
+#define alloca(size) __builtin_alloca(size)
+#define TTY_FLUSH()
+#ifdef putc
+#undef putc
+#endif
+#define putc(x, f)   ets_putc(x)
+#ifdef printf
+#undef printf
+#endif
+#define printf(...)  ets_printf(__VA_ARGS__)
+
+#elif defined(WIN32)
 
 /* Windows CE stuff */
 #if defined(_WIN32_WCE)
