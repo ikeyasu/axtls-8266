@@ -342,7 +342,7 @@ int add_cert(SSL_CTX *ssl_ctx, const uint8_t *buf, int len)
     X509_CTX *cert = NULL;
     int offset;
 
-    while (ssl_ctx->certs[i].buf && i < CONFIG_SSL_MAX_CERTS) 
+    while (i < CONFIG_SSL_MAX_CERTS && ssl_ctx->certs[i].buf) 
         i++;
 
     if (i == CONFIG_SSL_MAX_CERTS) /* too many certs */
@@ -388,7 +388,7 @@ error:
  */
 int add_cert_auth(SSL_CTX *ssl_ctx, const uint8_t *buf, int len)
 {
-    int ret = SSL_OK; /* ignore errors for now */
+    int ret = X509_OK; /* ignore errors for now */
     int i = 0;
     CA_CERT_CTX *ca_cert_ctx;
 
@@ -410,9 +410,9 @@ int add_cert_auth(SSL_CTX *ssl_ctx, const uint8_t *buf, int len)
                     "compile-time configuration required\n", 
                     CONFIG_X509_MAX_CA_CERTS);
 #endif
+            ret = X509_MAX_CERTS;
             break;
         }
-
 
         /* ignore the return code */
         if (x509_new(buf, &offset, &ca_cert_ctx->cert[i]) == X509_OK)
@@ -1075,7 +1075,9 @@ int send_packet(SSL *ssl, uint8_t protocol, const uint8_t *in, int length)
             uint8_t iv_size = ssl->cipher_info->iv_size;
             uint8_t *t_buf = alloca(msg_length + iv_size);
             memcpy(t_buf + iv_size, ssl->bm_data, msg_length);
-            get_random(iv_size, t_buf);
+            if (get_random(iv_size, t_buf) < 0)
+                return SSL_NOT_OK;
+
             msg_length += iv_size;
             memcpy(ssl->bm_data, t_buf, msg_length);
         }
@@ -1334,25 +1336,26 @@ int basic_read(SSL *ssl, uint8_t **in_data)
                 goto error;
             }
 
-            /* all encrypted from now on */
-            SET_SSL_FLAG(SSL_RX_ENCRYPTED);
             if (set_key_block(ssl, 0) < 0)
             {
                 ret = SSL_ERROR_INVALID_HANDSHAKE;
                 goto error;
             }
             
+            /* all encrypted from now on */
+            SET_SSL_FLAG(SSL_RX_ENCRYPTED);
             memset(ssl->read_sequence, 0, 8);
             break;
 
         case PT_APP_PROTOCOL_DATA:
-            if (in_data)
+            if (in_data && ssl->hs_status == SSL_OK)
             {
                 *in_data = buf;   /* point to the work buffer */
                 (*in_data)[read_len] = 0;  /* null terminate just in case */
+                ret = read_len;
             }
-
-            ret = read_len;
+            else
+                ret = SSL_ERROR_INVALID_PROT_MSG;
             break;
 
         case PT_ALERT_PROTOCOL:
@@ -1441,10 +1444,14 @@ int send_change_cipher_spec(SSL *ssl)
 {
     int ret = send_packet(ssl, PT_CHANGE_CIPHER_SPEC, 
             g_chg_cipher_spec_pkt, sizeof(g_chg_cipher_spec_pkt));
-    SET_SSL_FLAG(SSL_TX_ENCRYPTED);
 
     if (ret >= 0 && set_key_block(ssl, 1) < 0)
         ret = SSL_ERROR_INVALID_HANDSHAKE;
+    
+    if (ssl->cipher_info)
+        SET_SSL_FLAG(SSL_TX_ENCRYPTED);
+    if (ssl->cipher_info)
+        SET_SSL_FLAG(SSL_TX_ENCRYPTED);
 
     memset(ssl->write_sequence, 0, 8);
     return ret;
@@ -2160,7 +2167,7 @@ EXP_FUNC void STDCALL ssl_display_error(int error_code) {}
 EXP_FUNC SSL * STDCALL ssl_client_new(SSL_CTX *ssl_ctx, int client_fd, const
         uint8_t *session_id, uint8_t sess_id_size)
 {
-    printf(unsupported_str);
+    printf("%s", unsupported_str);
     return NULL;
 }
 #endif
@@ -2168,20 +2175,20 @@ EXP_FUNC SSL * STDCALL ssl_client_new(SSL_CTX *ssl_ctx, int client_fd, const
 #if !defined(CONFIG_SSL_CERT_VERIFICATION)
 EXP_FUNC int STDCALL ssl_verify_cert(const SSL *ssl)
 {
-    printf(unsupported_str);
+    printf("%s", unsupported_str);
     return -1;
 }
 
 
 EXP_FUNC const char * STDCALL ssl_get_cert_dn(const SSL *ssl, int component)
 {
-    printf(unsupported_str);
+    printf("%s", unsupported_str);
     return NULL;
 }
 
 EXP_FUNC const char * STDCALL ssl_get_cert_subject_alt_dnsname(const SSL *ssl, int index)
 {
-    printf(unsupported_str);
+    printf("%s", unsupported_str);
     return NULL;
 }
 
